@@ -4,12 +4,13 @@ import datetime
 import plotly.graph_objects as go
 import plotly.express as px
 
-#testing push
 
 #%% data preparation
 months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 months_order = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
-neighbours = ['DE', 'BE', 'CH', 'ES', 'GB', "IT"]
+df_M_X = pd.read_csv("Data/parsed_data/jan2019DayAheadCommercialSchedules.csv")
+base_country = 'FR'
+neighbours = df_M_X[(df_M_X.OutAreaTypeCode == "CTY") & (df_M_X.InMapCode == base_country)].OutMapCode.unique()
 M_columns = ['Imported_' + country for country in neighbours]
 X_columns = ['Exported_' + country for country in neighbours]
 df_gen = pd.read_csv("Data/parsed_data/jan2019AggregatedGenerationPerType.csv")
@@ -157,8 +158,8 @@ for negative_variable in negative_variables:
 
 data_FR["hour"] = [i for i in range(8760)]
 data_FR.index = [i for i in range(8760)]
-data_FR.to_csv('temp10.csv')
+data_FR.to_csv(base_country +'_data.csv')
 
-df1 = data_FR.melt(id_vars=['hour']+list(data_FR.keys()[len(data_FR):]), var_name='AAPL')
-fig = px.line(df1, x='hour', y='value', color='AAPL' )
+df1 = data_FR.melt(id_vars=['hour']+list(data_FR.keys()[len(data_FR):]), var_name='Time Series')
+fig = px.line(df1, x='hour', y='value', color='Time Series' )
 fig.show()
