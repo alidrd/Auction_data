@@ -18,6 +18,7 @@ pio.renderers.default = 'browser'
 
 #todo:
 # residual demands minus imports/exports to neighbouring countries
+# figure based on hours of the year (if error happens in a certain season) - plot and run for 4 to 8
 # Eurostat values
 
 # Done
@@ -31,6 +32,7 @@ pio.renderers.default = 'browser'
 country = 'FR'
 
 country_data = pd.read_csv(country + '_data_missing_data_handeled.csv', index_col=0)
+country_data = country_data.iloc[int((5/12)*8760):int((9/12)*8760),:]   # remove later -------------------------------------------
 import_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Imported_')]
 export_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Exported_')]
 neighbours = list(set(import_countries+export_countries))
@@ -46,6 +48,7 @@ wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corre
 # ninja_wind_country_FR_current-merra-2_corrected.csv # ninja_wind_country_FR_near-termfuture-merra-2_corrected.csv # ninja_wind_country_FR_long-termfuture-merra-2_corrected.csv
 indices = [i for i in wind_data.index if i.startswith(year)]
 wind_data_year_tech = wind_data.loc[indices, tech].values
+wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # remove later -------------------------------------------
 
 # K nearest neighbours
 
@@ -162,6 +165,21 @@ fig.write_html("figures/" + country + "_KKN_1000.html")
 fig = go.Figure(go.Scatter(x=X_sorted_org_scale[:, 0].flatten(), y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten(), mode='markers', name='Original'))
 fig.update_layout(title="Residual Demand vs. DPrice")
 fig.show()
+
+# Y_pred = clf.predict(X_scaled)
+# Y_pred_org_scale = scaler_Y.inverse_transform(Y_pred)
+
+# fig = go.Figure(go.Histogram2d(x=X_sorted_org_scale[:, 0].flatten(), y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten()))
+# seasons_No = 6
+# fig = go.Figure()
+# for i in range(seasons_No):
+#     start_hour = int((i/seasons_No)*8760)
+#     end_hour = int(((i+1)/seasons_No)*8760)
+#     fig.add_trace(go.Scatter(x=X[start_hour:end_hour, 0].flatten(), y=Y_pred_org_scale[start_hour:end_hour, 0].flatten()-scaler_Y.inverse_transform(Y_pred_reduced)[start_hour:end_hour,0], mode='markers', name=str(i)))
+# fig.update_layout(title="Residual Demand vs. DPrice in seasons")
+# # fig.update_yaxes(range=[-2, 0])
+# # fig.update_xaxes(range=[20000, 80000])
+# fig.show()
 
 fig = go.Figure(go.Histogram2d(x=wind_data_year_tech[orders], y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten()))
 # fig = go.Figure(go.Scatter(x=wind_data_year_tech[orders], y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten(), mode='markers', name='Original'))
