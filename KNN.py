@@ -32,7 +32,7 @@ pio.renderers.default = 'browser'
 country = 'FR'
 
 country_data = pd.read_csv(country + '_data_missing_data_handeled.csv', index_col=0)
-country_data = country_data.iloc[int((5/12)*8760):int((9/12)*8760),:]   # remove later -------------------------------------------
+country_data = country_data.iloc[int((5/12)*8760):int((9/12)*8760),:]   # uncomment to run for a given period only
 import_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Imported_')]
 export_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Exported_')]
 neighbours = list(set(import_countries+export_countries))
@@ -48,22 +48,15 @@ wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corre
 # ninja_wind_country_FR_current-merra-2_corrected.csv # ninja_wind_country_FR_near-termfuture-merra-2_corrected.csv # ninja_wind_country_FR_long-termfuture-merra-2_corrected.csv
 indices = [i for i in wind_data.index if i.startswith(year)]
 wind_data_year_tech = wind_data.loc[indices, tech].values
-wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # remove later -------------------------------------------
+wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
 
 # K nearest neighbours
-
-# d_reduced = 3665
-
 
 # residual_demand_columns = [i for i in country_data.columns if i.endswith('Residual_Demand')]
 # X = country_data.loc[:, residual_demand_columns].values.reshape(-1, len(residual_demand_columns))
 # X[:, 1] = X[:, 1:].sum(axis=1)/(20)
 # X = np.delete(X, [2,3,4,5,6], 1)
 # Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2)
-
-# why print(clf.scorer_) gives make_scorer(mean_squared_error, greater_is_better=False, squared=False) without squared OK with R2
-# why mse not match
-
 
 ## outlier detection -----------------
 residual_demand_columns = [i for i in country_data.columns if i.endswith('Residual_Demand')]
