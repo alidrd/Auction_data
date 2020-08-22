@@ -13,10 +13,9 @@ from sklearn import preprocessing
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.covariance import EllipticEnvelope
 from sklearn.ensemble import IsolationForest
-
 pio.renderers.default = 'browser'
 
-#todo:
+# todo:
 # residual demands minus imports/exports to neighbouring countries
 # figure based on hours of the year (if error happens in a certain season) - plot and run for 4 to 8
 # Eurostat values
@@ -26,13 +25,17 @@ pio.renderers.default = 'browser'
 # outlier removal (95% percentile)
 # analysis of high error hours                                                  demand range: mid
 # sum of residual demands                                                        Nope 15%
-
-
-
+# run for a given period to see if there is improvement by splitting the data to seasons  - no help
+# multiple renewable technologies
+# parameters
 country = 'FR'
+tech = ["onshore", "offshore"]  # tech = 'onshore' # offshore  national
+year = '2019'
+installed_res_cap = [24600 - 13610, 2400] # 2023 # installed_res_cap = [34100 - 13610, 4700]   # 2028
 
+# importing data points
 country_data = pd.read_csv(country + '_data_missing_data_handeled.csv', index_col=0)
-country_data = country_data.iloc[int((5/12)*8760):int((9/12)*8760),:]   # uncomment to run for a given period only
+# country_data = country_data.iloc[int((5/12)*8760):int((9/12)*8760),:]   # uncomment to run for a given period only
 import_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Imported_')]
 export_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Exported_')]
 neighbours = list(set(import_countries+export_countries))
@@ -41,24 +44,18 @@ for neighbour in neighbours:
     neighbour_data = pd.read_csv(neighbour + '_data_missing_data_handeled.csv', index_col=0)
     country_data[neighbour + '_Residual_Demand'] = neighbour_data.loc[:, 'Residual_Demand']
 # import wind data
-tech = 'onshore' # offshore  national
-year = '2019'
-installed_res_cap = 34100 - 13610  #24600 - 13610
 wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corrected.csv', index_col=0, header=2)
 # ninja_wind_country_FR_current-merra-2_corrected.csv # ninja_wind_country_FR_near-termfuture-merra-2_corrected.csv # ninja_wind_country_FR_long-termfuture-merra-2_corrected.csv
 indices = [i for i in wind_data.index if i.startswith(year)]
 wind_data_year_tech = wind_data.loc[indices, tech].values
-wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
+# wind_data_year_tech[:] = 0.5   # do the simulation for a given average availabitliy factor
 
-# K nearest neighbours
+if np.ndim(wind_data_year_tech) > 1:
+    res_gen = np.sum(installed_res_cap*wind_data_year_tech, axis=1)
+else:
+    res_gen = installed_res_cap * wind_data_year_tech  # wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
 
-# residual_demand_columns = [i for i in country_data.columns if i.endswith('Residual_Demand')]
-# X = country_data.loc[:, residual_demand_columns].values.reshape(-1, len(residual_demand_columns))
-# X[:, 1] = X[:, 1:].sum(axis=1)/(20)
-# X = np.delete(X, [2,3,4,5,6], 1)
-# Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2)
-
-## outlier detection -----------------
+# outlier detection
 residual_demand_columns = [i for i in country_data.columns if i.endswith('Residual_Demand')]
 X_FR = country_data.loc[:, residual_demand_columns].values.reshape(-1, len(residual_demand_columns))
 X_FR = np.delete(X_FR, [1, 2, 3, 4, 5, 6], 1)
@@ -72,77 +69,81 @@ outlier_score = clf.negative_outlier_factor_
 # #isolation forest
 # clf = IsolationForest(random_state=0, contamination="auto").fit(X_Y)
 # inliers = clf.predict(X_Y)
-
 # # covariance
 # cov = EllipticEnvelope(random_state=0, contamination=0.2).fit(X_Y)
 # inliers = cov.predict(X_Y)
-
 print('Number of inliners are ', str(len(inliers[inliers == 1])))
-
-#/ ---
+# keeping only the inliers (all variables)
 X = country_data.loc[:, residual_demand_columns].values.reshape(-1, len(residual_demand_columns))
 Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2)
 X = X[inliers == 1, :]
 Y = Y[inliers == 1, :]
-
-
+# scaling X and Y
 scaler_Y = StandardScaler()
 scaler_Y.fit(Y)
 Y_scaled = scaler_Y.transform(Y)
-
 scaler_X = StandardScaler()
 scaler_X.fit(X)
 X_scaled = scaler_X.transform(X)
 FR_RD_scaler = 2
 X_scaled[:, 0] = FR_RD_scaler * X_scaled[:, 0]
-# print('Mean of the scaled X should be almost zero for all covariates ', X_scaled.mean(axis=0))
-
+# finding KNN design
 neigh = KNeighborsRegressor()
 param_grid = [{'n_neighbors': [5, 15, 52, 168], 'weights': ['uniform']}]
-# clf = GridSearchCV(neigh, param_grid, scoring='neg_mean_squared_error', cv=5, refit=True)
-# clf = GridSearchCV(neigh, param_grid, scoring='neg_mean_absolute_error', cv=10, refit=True)
-clf = GridSearchCV(neigh, param_grid, scoring='r2', cv=10, refit=True)
+clf = GridSearchCV(neigh, param_grid, scoring='r2', cv=10, refit=True)  #scoring='neg_mean_squared_error'
 clf.fit(X_scaled, Y_scaled)
-# prediction and error calculation for all data points (not just the inliers) -------------------------------
+# loading all data points (not just the inliers) -------------------------------
 X = country_data.loc[:, residual_demand_columns].values.reshape(-1, len(residual_demand_columns))  #comment to ignore outliers in the predictions
 X_scaled = scaler_X.transform(X)
 X_scaled[:, 0] = FR_RD_scaler * X_scaled[:, 0]
 Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2)  #comment to ignore outliers in the predictions
 Y_scaled = scaler_Y.transform(Y)
 # wind_data_year_tech = wind_data_year_tech[inliers == 1]          #uncomment to ignore outliers in the predictions
-# ---------------------
+# prediction and error calculation for base model
 Y_pred = clf.predict(X_scaled)
 Y_pred_org_scale = scaler_Y.inverse_transform(Y_pred)
 mse = mean_squared_error(Y[:, 0], Y_pred_org_scale[:, 0])
 r2 = r2_score(Y[:, 0], Y_pred_org_scale[:, 0])
-
-# Y_pred_org_scale = scaler_X.inverse_transform(Y_pred)
 orders = np.argsort(X_scaled[:,0].flatten())
 X_scaled_sorted = X_scaled[orders]
 X_sorted_org_scale = X[orders]
 Y_pred_ordered = clf.predict(X_scaled_sorted)
 Y_pred_ordered_org_scale = scaler_Y.inverse_transform(Y_pred_ordered)
-
+# prediction and error calculation for reduced residual demand
 X_reduced = np.copy(X)
-X_reduced[:, 0] = X_reduced[:, 0] - installed_res_cap*wind_data_year_tech #d_reduced
+X_reduced[:, 0] = X_reduced[:, 0] - res_gen
 X_reduced_scaled = scaler_X.transform(X_reduced)
 X_reduced_scaled[:, 0] = FR_RD_scaler * X_reduced_scaled[:, 0]
 Y_pred_reduced = clf.predict(X_reduced_scaled)
 Y_pred_reduced_org_scale = scaler_Y.inverse_transform(Y_pred_reduced)
 Y_pred_reduced_org_scale = Y_pred_reduced_org_scale[orders]
-
-mean_reduction_in_price = (Y_pred_ordered_org_scale[:, 0].flatten() - Y_pred_reduced_org_scale[:, 0].flatten()).mean()
+# calculating differences in Y
+price_difference = Y_pred_ordered_org_scale[:, 0].flatten() - Y_pred_reduced_org_scale[:, 0].flatten()
+mean_reduction_in_price = price_difference.mean()
+mean_reduction_in_price_only_positive = price_difference[price_difference>=0].mean()
 fig = go.Figure(data=[go.Histogram(x=Y_pred_ordered_org_scale[:, 0].flatten() - Y_pred_reduced_org_scale[:, 0].flatten())])
-fig.update_layout(title="Average price reduction is  " + str(mean_reduction_in_price) + "compared to orginal market price of " + str(Y[:,0].mean()))
-fig.write_html("figures/" + country + "_histo.html")
+fig.update_layout(title="Average price reduction is  " + str(mean_reduction_in_price) + " ("+ str(mean_reduction_in_price_only_positive) + " ignoring negatives) compared to original market price of " + str(Y[:,0].mean()))
+fig.write_html("figures/" + country + "_histogram.html")
 fig.show()
 
+quantity_difference = Y_pred_ordered_org_scale[:, 1].flatten() - Y_pred_reduced_org_scale[:, 1].flatten()
+mean_reduction_in_quantity = quantity_difference.mean()
+mean_reduction_in_quantity_only_positive = mean_reduction_in_quantity[mean_reduction_in_quantity >= 0].mean()
+fig = go.Figure(data=[go.Histogram(x=Y_pred_ordered_org_scale[:, 1].flatten() - Y_pred_reduced_org_scale[:, 1].flatten())])
+fig.update_layout(title="Average quantity reduction is  " + str(int(mean_reduction_in_quantity)) + " (" + str(int(mean_reduction_in_quantity_only_positive)) +
+                        " while average additional RES generation is " + str(int(res_gen.mean())) +
+                        " making total demand increase of " + str(int( + res_gen.mean())) +
+                        " ignoring negatives) compared to original Demand  of " + str(Y[:, 1].mean())
+                  )
+fig.show()
+
+# other figures
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=X[:, 0].flatten(), y=Y[:, 0].flatten(), mode='markers', name='Original'))
 fig.add_trace(go.Scatter(x=X[inliers == 1, 0].flatten(), y=Y[inliers == 1, 0].flatten(), mode='markers', name='Inliers'))   #comment to ignore outliers in the predictions
 fig.add_trace(go.Scatter(x=X_sorted_org_scale[:, 0].flatten(), y=Y_pred_ordered_org_scale[:, 0].flatten(), mode='lines', name='Fit:' + str(clf.best_params_['n_neighbors']) + ' R2: ' + str(clf.best_score_)))
 fig.add_trace(go.Scatter(x=X_sorted_org_scale[:, 0].flatten(), y=10*np.sign(Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten()), mode='lines', name='Error'))
-fig.add_trace(go.Scatter(x=X_sorted_org_scale[:, 0].flatten(), y=40*wind_data_year_tech[orders], mode='lines', name='New RD'))
+fig.add_trace(go.Scatter(x=X_sorted_org_scale[:, 0].flatten(), y=res_gen[orders]/1000, mode='lines', name='New RD'))
 fig.add_trace(go.Scatter(x=X_sorted_org_scale[:, 0].flatten(), y=Y_pred_reduced_org_scale[:, 0].flatten(), mode='lines', name='Fit:' + str(clf.best_params_['n_neighbors']) + ' Reduced' ))
 unique, counts = np.unique((Y_pred_ordered_org_scale[:, 0] - Y_pred_reduced_org_scale[:, 0])>0, return_counts=True)
 a = dict(zip(unique, counts))
@@ -151,16 +152,11 @@ fig.update_layout(
 )
 fig.show()
 fig.write_html("figures/" + country + "_KKN_1000.html")
-# demand original * price original
-# demand original * price new
 
 # fig = go.Figure(go.Histogram2d(x=X_sorted_org_scale[:, 0].flatten(), y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten()))
 fig = go.Figure(go.Scatter(x=X_sorted_org_scale[:, 0].flatten(), y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten(), mode='markers', name='Original'))
 fig.update_layout(title="Residual Demand vs. DPrice")
 fig.show()
-
-# Y_pred = clf.predict(X_scaled)
-# Y_pred_org_scale = scaler_Y.inverse_transform(Y_pred)
 
 # fig = go.Figure(go.Histogram2d(x=X_sorted_org_scale[:, 0].flatten(), y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten()))
 # seasons_No = 6
@@ -174,7 +170,7 @@ fig.show()
 # # fig.update_xaxes(range=[20000, 80000])
 # fig.show()
 
-fig = go.Figure(go.Histogram2d(x=wind_data_year_tech[orders], y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten()))
+fig = go.Figure(go.Histogram2d(x=res_gen[orders], y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten()))
 # fig = go.Figure(go.Scatter(x=wind_data_year_tech[orders], y=Y_pred_ordered_org_scale[:, 0].flatten()-Y_pred_reduced_org_scale[:, 0].flatten(), mode='markers', name='Original'))
 fig.update_layout(title="RES vs. DPrice")
 fig.show()
