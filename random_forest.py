@@ -4,6 +4,8 @@ import plotly.io as pio
 from sklearn.ensemble import RandomForestRegressor
 import plotly.graph_objects as go
 from sklearn.neighbors import LocalOutlierFactor
+from sklearn.utils import resample
+import pickle
 
 
 pio.renderers.default = 'browser'
@@ -43,6 +45,74 @@ X = country_data.loc[:, columns_to_consider].values.reshape(-1, len(columns_to_c
 Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2) #,  2
 ## X = X[inliers == 1, :]
 ## Y = Y[inliers == 1, :]
+#%% Wind data
+A = 13610  # todo find max A
+wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corrected.csv', index_col=0, header=2)
+# ninja_wind_country_FR_current-merra-2_corrected.csv # ninja_wind_country_FR_near-termfuture-merra-2_corrected.csv # ninja_wind_country_FR_long-termfuture-merra-2_corrected.csv
+indices = [i for i in wind_data.index if i.startswith(year)]
+wind_data_year_tech = wind_data.loc[indices, tech].values
+# wind_data_year_tech[:] = 0.5   # do the simulation for a given average availabitliy factor
+if np.ndim(wind_data_year_tech) > 1:
+    res_gen_to_remove = np.sum(A * wind_data_year_tech, axis=1)
+else:
+    res_gen_to_remove = A * wind_data_year_tech  # wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
+
+#%% bootstrap
+bootstrap_rounds = 100
+X_new = np.copy(X)
+X_new[:, -1] = X[:, -1] - res_gen_to_remove
+d_p_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                      index=[i for i in range(bootstrap_rounds)])
+d_q_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                      index=[i for i in range(bootstrap_rounds)])
+
+for run in range(bootstrap_rounds):
+    print(run)
+    X_bt, Y_bt = resample(X, Y, n_samples=len(X), replace=True)
+    rf = RandomForestRegressor(n_estimators=20, bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=10)
+    rf.fit(X_bt, Y_bt)
+    predictions = rf.predict(X)
+    predictions_pre = rf.predict(X_new)
+    d_p_df.loc[run, :] = predictions_pre[:, 0] - predictions[:, 0]
+    d_q_df.loc[run, :] = predictions_pre[:, 1] - predictions[:, 1]
+
+#%% save and load BS results
+# Saving the objects:
+with open('variables.pkl', 'wb') as f:
+    pickle.dump([d_p_df, d_q_df, res_gen_to_remove, country_data, X, Y, X_new], f)
+
+# Getting back the objects:
+with open('variables.pkl', 'rb') as f:
+    d_p_df, d_q_df, res_gen_to_remove, country_data, X, Y, X_new = pickle.load(f)
+
+#%% post process
+d_p_df_mean = d_p_df.mean(axis=1).mean()
+fig = go.Figure()
+fig.add_trace(go.Box(y=d_p_df.mean(axis=1), name="Price"))
+fig.update_layout(title_text='Range of difference estimates in bootstrap method for price increase: {:.2f}'.format(d_p_df_mean)
+                             + ' CI=[{:.2f}'. format(d_p_df.mean(axis=1).quantile(q=0.05))
+                             + ', {:.2f}'.format(d_p_df.mean(axis=1).quantile(q=0.95)) + ']')
+fig.show()
+
+fig = go.Figure()
+fig.add_trace(go.Box(y=d_q_df.mean(axis=1), name="Consumption"))
+fig.update_layout(title_text='Range of difference estimates in bootstrap method for quantity reduction: {:.2f}'.format(d_q_df.mean(axis=1).mean())
+                             + ' CI=[{:.2f}'. format(d_q_df.mean(axis=1).quantile(q=0.05)) +
+                             ', {:.2f}'.format(d_q_df.mean(axis=1).quantile(q=0.95)) + '] \n '
+                             'Note: average renewable generation removed from market is {:.2f}'.format(res_gen_to_remove.mean()))
+fig.show()
+
+fig = go.Figure(go.Histogram(x=d_p_df.values.flatten(), nbinsx=100))
+fig.update_layout(title_text='Histogram of ALL price difference estimates from BS')
+fig.show()
+
+fig = go.Figure(go.Histogram(x=d_q_df.values.flatten(), nbinsx=50))  #d_q_df.mean(axis=1)
+fig.update_layout(title_text='Histogram of ALL quantity difference estimates from BS')
+fig.show()
+sorted_d_p = d_q_df.mean(axis=1).sort_values()
+d_p_df.mean(axis=1).mean()
+
+#%% Single run (bs) analysis
 # rf = RandomForestRegressor(n_estimators=50, bootstrap=True, random_state=42, oob_score=True, criterion='mae', n_jobs=10)
 # print('here2')
 # rf.fit(X, Y)
@@ -115,54 +185,13 @@ Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2) #,  2
 # fig.update_layout(title_text='Diff in Price:')
 # fig.update_xaxes(title_text="hour in year")
 # fig.show()
-#%% bootstrap
-from  sklearn.utils import resample
-
-A = 13610  # todo find max A
-wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corrected.csv', index_col=0, header=2)
-# ninja_wind_country_FR_current-merra-2_corrected.csv # ninja_wind_country_FR_near-termfuture-merra-2_corrected.csv # ninja_wind_country_FR_long-termfuture-merra-2_corrected.csv
-indices = [i for i in wind_data.index if i.startswith(year)]
-wind_data_year_tech = wind_data.loc[indices, tech].values
-# wind_data_year_tech[:] = 0.5   # do the simulation for a given average availabitliy factor
-if np.ndim(wind_data_year_tech) > 1:
-    res_gen_to_remove = np.sum(A * wind_data_year_tech, axis=1)
-else:
-    res_gen_to_remove = A * wind_data_year_tech  # wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
-
-bootstrap_rounds = 100
-X_new = np.copy(X)
-X_new[:, -1] = X[:, -1] - res_gen_to_remove
-d_p_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                      index=[i for i in range(bootstrap_rounds)])
-d_q_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                      index=[i for i in range(bootstrap_rounds)])
-
-for run in range(bootstrap_rounds):
-    print(run)
-    X_bt, Y_bt = resample(X, Y, n_samples=len(X), replace=True)
-    rf = RandomForestRegressor(n_estimators=10, bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=10)
-    rf.fit(X_bt, Y_bt)
-    predictions = rf.predict(X)
-    predictions_pre = rf.predict(X_new)
-    d_p_df.loc[run, :] = predictions_pre[:, 0] - predictions[:, 0]
-    d_q_df.loc[run, :] = predictions_pre[:, 1] - predictions[:, 1]
 
 
-fig = go.Figure()
-fig.add_trace(go.Box(y=d_p_df.mean(axis=1)))
-fig.add_trace(go.Box(y=d_q_df.mean(axis=1)))
-fig.show()
 
-fig = go.Figure(go.Histogram(x=d_p_df.mean(axis=1), nbinsx=20))
-fig.show()
-sorted = d_p_df.mean(axis=1).sort_values()
-d_p_df.mean(axis=1).mean()
-sorted.iloc[4]
-sorted.iloc[94]
+#%% rest
 
 
-fig = go.Figure(go.Histogram(x=d_q_df.mean(axis=1), nbinsx=20))
-fig.show()
+
 
 # from sklearn.tree import export_graphviz
 # import pydot
