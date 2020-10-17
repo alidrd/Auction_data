@@ -8,7 +8,9 @@ from sklearn.utils import resample
 import pickle
 from sklearn.model_selection import GridSearchCV
 from plotly.subplots import make_subplots
-
+from sklearn import linear_model
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.preprocessing import OneHotEncoder
 
 pio.renderers.default = 'browser'
 #%% parameters
@@ -203,7 +205,7 @@ print('Accuracy P:', round(100-np.mean(mape_no_inf), 2), '%.')
 print('Accuracy D:', round(100-np.mean(mape_2), 2), '%.')
 X_new = np.copy(X)
 X_new[:, -1] = X[:, -1] - res_gen_to_remove
-predictions_pre = rf.predict(X_new)
+# predictions_pre = rf.predict(X_new)
 
 # d_p_predic_df = predictions_pre[:, 0] - predictions[:, 0]
 # d_q_predic_df = predictions_pre[:, 1] - predictions[:, 1]
@@ -302,6 +304,75 @@ fig.update_layout(
 )
 fig.show()
 
+#%% OLS comparison
+# making dummy variables for hour in day and year
+encoder = OneHotEncoder(drop='first', sparse=False)
+dummy_h_d = encoder.fit_transform(X[:, 7].reshape(X[:, 7].shape[0], -1))
+seasons_length = [24*(30+28), 24*(31+30+31), 24*(30+31+31)]
+days_passed = 0
+seasons = (len(seasons_length)+1)*np.ones((8760, 1))
+for s in range(len(seasons_length)):
+    seasons[days_passed: days_passed + seasons_length[s]] = s
+    days_passed = days_passed + seasons_length[s]
+dummy_h_y = encoder.fit_transform(seasons)
+X_OLS = np.delete(X, [6, 7], 1)
+X_OLS = np.hstack((X_OLS, dummy_h_y))
+X_OLS = np.hstack((X_OLS, dummy_h_d))
+# regression
+regr = linear_model.LinearRegression()
+regr.fit(X_OLS, Y)
+Y_OLS = regr.predict(X_OLS)
+print('Coefficients: \n', regr.coef_)
+print("OLS", 70*"-")
+print('Mean squared error: %.3f' % mean_squared_error(Y, Y_OLS))
+print('R2 for price: %.3f' % r2_score(Y[:, 0], Y_OLS[:, 0]))
+print('R2 for demand: %.3f' % r2_score(Y[:, 1], Y_OLS[:, 1]))
+print('MAE for price: %.3f' % mean_absolute_error(Y[:, 0], Y_OLS[:, 0]))
+print('MAE for demand: %.3f' % mean_absolute_error(Y[:, 1], Y_OLS[:, 1]))
+
+
+#
+rf2 = RandomForestRegressor(n_estimators=100, max_depth=20, min_samples_split=2, bootstrap=True, random_state=42, oob_score=True, criterion='mae', n_jobs=-1)
+rf2.fit(X, Y)
+Y_RF = rf2.predict(X)
+print("Random Forest", 70*"-")
+print('Mean squared error: %.2f' % mean_squared_error(Y, Y_RF))
+print('R2 for price: %.3f' % r2_score(Y[:, 0], Y_RF[:, 0]))
+print('R2 for demand: %.3f' % r2_score(Y[:, 1], Y_RF[:, 1]))
+print('MAE for price: %.3f' % mean_absolute_error(Y[:, 0], Y_RF[:, 0]))
+print('MAE for demand: %.3f' % mean_absolute_error(Y[:, 1], Y_RF[:, 1]))
+#%% OLS estimate of the effects
+X_OLS_red = np.copy(X_OLS)
+X_OLS_red[:, 6] = X_OLS_red[:, 6] - res_gen_to_remove
+Y_OLS_red = regr.predict(X_OLS_red)
+d_p_predic_df_OLS = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)], index=[i for i in range(bootstrap_rounds)])
+d_q_predic_df_OLS = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)], index=[i for i in range(bootstrap_rounds)])
+p_predict_df_OLS = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)], index=[i for i in range(bootstrap_rounds)])
+q_predict_df_OLS = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)], index=[i for i in range(bootstrap_rounds)])
+p_red_predict_df_OLS = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)], index=[i for i in range(bootstrap_rounds)])
+q_red_predict_df_OLS = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)], index=[i for i in range(bootstrap_rounds)])
+for run in range(bootstrap_rounds):
+    print("bootstrap run number:", run)
+    X_bt, Y_bt = resample(X_OLS, Y, n_samples=len(X_OLS), replace=True)
+    regr.fit(X_bt, Y_bt)
+    predictions = regr.predict(X_OLS)
+    predictions_pre = regr.predict(X_OLS_red)
+    d_p_predic_df_OLS.loc[run, :] = predictions_pre[:, 0] - predictions[:, 0]
+    d_q_predic_df_OLS.loc[run, :] = predictions_pre[:, 1] - predictions[:, 1]
+    p_predict_df_OLS.loc[run, :] = predictions[:, 0]
+    q_predict_df_OLS.loc[run, :] = predictions[:, 1]
+    p_red_predict_df_OLS.loc[run, :] = predictions_pre[:, 0]
+    q_red_predict_df_OLS.loc[run, :] = predictions_pre[:, 1]
+
+#%% values
+print('Range of difference estimates in bootstrap method for price increase: {:.2f}'.format(d_p_predic_df_OLS.mean(axis=1).mean())
+                             + ' ({:.2f}'.format(100*d_p_predic_df_OLS.mean(axis=1).mean()/country_data.loc[:, "Price"].values.mean()) + '%) CI=[{:.2f}'. format(d_p_predic_df_OLS.mean(axis=1).quantile(q=0.025))
+                             + ', {:.2f}'.format(d_p_predic_df_OLS.mean(axis=1).quantile(q=0.975)) + ']')
+print('Range of difference estimates in bootstrap method for quantity reduction: {:.2f}'.format(d_q_predic_df_OLS.mean(axis=1).mean())
+                             + ' ({:.2f}'.format(100*d_q_predic_df_OLS.mean(axis=1).mean()/country_data.loc[:, "Demand"].values.mean()) + '%)'
+                             + ' CI=[{:.2f}'. format(d_q_predic_df_OLS.mean(axis=1).quantile(q=0.025))
+                             + ', {:.2f}'.format(d_q_predic_df_OLS.mean(axis=1).quantile(q=0.975)) + '] \n '
+                             'Note: average renewable generation removed from market is {:.2f}'.format(res_gen_to_remove.mean()))
 #%% else
 # plotly.io.orca.config.executable = '/path/to/orca'
 
