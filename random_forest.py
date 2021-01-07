@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import plotly.io as pio
+import plotly
 from sklearn.ensemble import RandomForestRegressor
 import plotly.graph_objects as go
 from sklearn.neighbors import LocalOutlierFactor
@@ -11,6 +12,7 @@ from plotly.subplots import make_subplots
 from sklearn import linear_model
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.preprocessing import OneHotEncoder
+import plotly.graph_objects as go
 
 pio.renderers.default = 'browser'
 #%% parameters
@@ -79,6 +81,8 @@ q_red_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns
                             index=[i for i in range(bootstrap_rounds)])
 # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
 # param_grid = [{'n_estimators': [10, 15, 50, 100, 150], 'min_samples_leaf': [1, 2, 10], 'max_depth': [10, 20, 30]}]
+# # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
+# # param_grid = [{'n_estimators': [100], 'min_samples_leaf': [2], 'max_depth': [20]}]
 # rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
 # rf.fit(X, Y)
 # print("aaaaaaaaaaaaaaaaaa")
@@ -91,19 +95,31 @@ q_red_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns
 #                                              , min_samples_split=2,
 #                                              min_weight_fraction_leaf=0.0, n_estimators=100, n_jobs=-1,
 #                                              oob_score=False, random_state=42, verbose=0, warm_start=True)
+# rf.cv_results_ is {'mean_fit_time': array([299.29166346]), 'std_fit_time': array([2.00266817]), 'mean_score_time': array([0.57184658]), 'std_score_time': array([0.67182286]), 'param_max_depth': masked_array(data=[20],
+#              mask=[False],
+#        fill_value='?',
+#             dtype=object), 'param_min_samples_leaf': masked_array(data=[2],
+#              mask=[False],
+#        fill_value='?',
+#             dtype=object), 'param_n_estimators': masked_array(data=[100],
+#              mask=[False],
+#        fill_value='?',
+#             dtype=object), 'params': [{'max_depth': 20, 'min_samples_leaf': 2, 'n_estimators': 100}], 'split0_test_score': array([-0.01585644]), 'split1_test_score': array([0.55001909]), 'split2_test_score': array([0.61057011]), 'split3_test_score': array([0.76912039]), 'split4_test_score': array([-0.44844751]), 'mean_test_score': array([0.29308113]), 'std_test_score': array([0.45579313]), 'rank_test_score': array([1])}
 
 #%% bootstrap
 for run in range(bootstrap_rounds):
     print("bootstrap run number:", run)
-    X_bt, Y_bt = resample(X, Y, n_samples=len(X), replace=True)
+    X_bt, Y_bt, res_gen_to_remove_bt = resample(X, Y, res_gen_to_remove, n_samples=len(X), replace=True)
     # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
     # param_grid = [{'n_estimators': [10, 100], 'min_samples_leaf': [2, 10], 'max_depth': [20, 30, 50]}]
     # rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
+    #todo: CVgridsearch
     rf = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True,
                                max_depth=20, min_samples_leaf=2, n_estimators=100) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
     rf.fit(X_bt, Y_bt)
     # rf = RandomForestRegressor(n_estimators=20, bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=10)
     # rf.fit(X_bt, Y_bt)
+    #todo: predic based on X_bt and X_bt_new, X_new_bt = np.copy(X_bt) ---- X_new_bt[:, -1] = X_bt[:, -1] - res_gen_to_remove_bt
     predictions = rf.predict(X)
     predictions_pre = rf.predict(X_new)
     d_p_predic_df.loc[run, :] = predictions_pre[:, 0] - predictions[:, 0]
@@ -251,17 +267,32 @@ fig.update_layout(
 fig.update_layout(title_text='Prices under different auctions', font=dict(size=40))
 fig.show()
 #%%
+bs_run = 0
+text_size = 26
+w = 5
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.02)
-fig.update_layout(title_text='Market outcomes under estimated counterfactuals', font=dict(size=40))
-fig.add_trace(go.Scatter(y=p_red_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIP', line=dict(width=8, color='#0000FF')), row=1, col=1)
-fig.add_trace(go.Scatter(y=p_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIT', line=dict(width=8, color='#FF0000')), row=1, col=1)
-fig.add_trace(go.Scatter(y=0.001*q_red_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIP',showlegend=False, line=dict(width=8, color='#0000FF')), row=2, col=1)
-fig.add_trace(go.Scatter(y=0.001*q_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIT', showlegend=False, line=dict(width=8, color='#FF0000')), row=2, col=1)
+# fig.update_layout(title_text='Market outcomes under estimated counterfactuals', font=dict(size=text_size))
+
+fig.add_trace(go.Scatter(y=p_red_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIP', line=dict(width=w, color='#0000FF')), row=1, col=1)
+fig.add_trace(go.Scatter(y=p_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIT', line=dict(width=w, color='#FF0000')), row=1, col=1)
+fig.add_trace(go.Scatter(y=0.001*q_red_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIP',showlegend=False, line=dict(width=w, color='#0000FF')), row=2, col=1)
+fig.add_trace(go.Scatter(y=0.001*q_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIT', showlegend=False, line=dict(width=w, color='#FF0000')), row=2, col=1)
 fig.update_xaxes(title_text="Hour in week", row=2, col=1)
 fig.update_yaxes(ticks='outside', showline=True, mirror=True, linecolor='black', title_text="Price (EUR/MWh)", row=1, col=1)
 fig.update_yaxes(ticks='outside', showline=True, mirror=True, linecolor='black', title_text="Consumption (GWh)", row=2, col=1)
-fig.update_layout(autosize=False, width=2*1200, height=2*800, margin=dict(l=2*100, r=100, b=100, t=100, pad=4), font=dict(size=28))
-fig.update_layout(legend_title_text='Policy')
+
+
+fig.update_layout(autosize=False, width=1200, height=1*800, margin=dict(l=10, r=10, b=10, t=10, pad=4), font=dict(size=text_size))
+# fig.update_layout(autosize=False, width=2*1200, height=2*800, margin=dict(l=2*100, r=100, b=100, t=100, pad=4), font=dict(size=text_size))
+# fig.update_layout(legend_title_text='Policy'
+#         #           ,font=dict(
+#         # family="Courier New, monospace",
+#         # size=18,
+#         # color="RebeccaPurple")
+#     )
+
+# fig.update_layout(legend=dict(orientation="v", yanchor="bottom", y=0.87, xanchor="center", x=0.93))
+
 # fig.update_xaxes(ticks="inside")
 fig.update_xaxes(showline=True, mirror=True, linecolor='black', tick0=0, dtick=24, gridcolor='Black', row=1, col=1)
 fig.update_xaxes(ticks='outside', showline=True, mirror=True, linecolor='black', tick0=0, dtick=24, gridcolor='Black', row=2, col=1)
@@ -269,8 +300,18 @@ fig.update_xaxes(tickvals=[x-1 for x in range(24, 169, 24)], ticktext=[str(x) fo
 fig.update_xaxes(tickvals=[x-1 for x in range(24, 169, 24)], ticktext=[str(x) for x in range(24, 169, 24)], row=2, col=1)
 # fig.update_yaxes(showgrid=False)
 fig.layout.plot_bgcolor = '#FFFFFF'
+fig.update_layout(legend=dict(
+    orientation="v",
+    yanchor="top",
+    y=0.98,
+    xanchor="left",
+    x=0.87  # x=0.15
+))
 fig.show()
-fig.write_image("figures/fig2.jpg")
+# plotly.io.orca.config.executable = r"C:\Users\darali00\AppData\Local\Programs\orca\orca.exe"
+fig.write_image("figures/fig2_2.jpg")
+fig.write_image("figures/fig2_2.svg")
+#%%
 # fig = make_subplots(specs=[[{"secondary_y": True}]])
 # fig.add_trace(go.Scatter(y=p_red_predict_df.loc[bs_run, 168*35-24:168*36-24+1], mode='lines', name='FIP', line=dict(width=8)), secondary_y=True)
 # fig.add_trace(go.Scatter(y=p_predict_df.loc[bs_run, 168*35-24:168*36-24+1], mode='lines', name='FIT', line=dict(width=8)), secondary_y=True)
@@ -325,18 +366,28 @@ Y_OLS = regr.predict(X_OLS)
 print('Coefficients: \n', regr.coef_)
 print("OLS", 70*"-")
 print('Mean squared error: %.3f' % mean_squared_error(Y, Y_OLS))
+print('MSE for Price: %.2f' % mean_squared_error(Y[:, 0], Y_OLS[:, 0]))
+print('MSE for demand: %.2f' % mean_squared_error(Y[:, 1], Y_OLS[:, 1]))
 print('R2 for price: %.3f' % r2_score(Y[:, 0], Y_OLS[:, 0]))
 print('R2 for demand: %.3f' % r2_score(Y[:, 1], Y_OLS[:, 1]))
 print('MAE for price: %.3f' % mean_absolute_error(Y[:, 0], Y_OLS[:, 0]))
 print('MAE for demand: %.3f' % mean_absolute_error(Y[:, 1], Y_OLS[:, 1]))
 
-
-#
-rf2 = RandomForestRegressor(n_estimators=100, max_depth=20, min_samples_split=2, bootstrap=True, random_state=42, oob_score=True, criterion='mae', n_jobs=-1)
+#%% RF with CV
+rf2 = RandomForestRegressor(n_estimators=100, max_depth=20, min_samples_leaf=2, bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1)
 rf2.fit(X, Y)
 Y_RF = rf2.predict(X)
+
+rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-2, warm_start=True)
+param_grid = [{'n_estimators': [100], 'min_samples_leaf': [2], 'max_depth': [20]}]
+rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
+rf.fit(X, Y)
+Y_RF = rf.predict(X)
+
 print("Random Forest", 70*"-")
 print('Mean squared error: %.2f' % mean_squared_error(Y, Y_RF))
+print('MSE for Price: %.2f' % mean_squared_error(Y[:, 0], Y_RF[:, 0]))
+print('MSE for demand: %.2f' % mean_squared_error(Y[:, 1], Y_RF[:, 1]))
 print('R2 for price: %.3f' % r2_score(Y[:, 0], Y_RF[:, 0]))
 print('R2 for demand: %.3f' % r2_score(Y[:, 1], Y_RF[:, 1]))
 print('MAE for price: %.3f' % mean_absolute_error(Y[:, 0], Y_RF[:, 0]))
