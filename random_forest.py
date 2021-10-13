@@ -38,8 +38,9 @@ for neighbour in neighbours:
 temperature_data = pd.read_csv('French data/ninja_weather_country_FR_merra-2_population_weighted.csv',
                                index_col=0, header=2, low_memory=False)
 temperature_data = temperature_data.loc["1/1/2019 0:00":"12/31/2019 23:00", "temperature"]
-fig = px.line(temperature_data, title='Temperature Hourly')
-fig.show()
+# fig = px.line(temperature_data, title='Temperature Hourly')
+# fig.show()
+country_data["temperature_FR"] = temperature_data.values
 #%% Import data Gas price
 gas_data = pd.read_excel('French data/Nat Gas Pricing - Data Downloads.xls', header=3)
 gas_data.index = gas_data.TSs
@@ -49,8 +50,9 @@ gas_data = gas_data.reindex(pd.date_range(start=gas_data.index.min(),
                                                   freq='1D'))
 gas_data = pd.to_numeric(gas_data)
 gas_data.interpolate(method="linear", inplace=True)
-fig = px.line(gas_data, title='Gas price daily')
-fig.show()
+# fig = px.line(gas_data, title='Gas price daily')
+# fig.show()
+country_data["gas_price"] = [gas_data.iloc[i] for i in range(0, 365) for j in range(24)]
 #%% Import data CO2 prices
 co2_data = pd.read_excel('French data/emission-spot-primary-market-auction-report-2019-data_EEX.xls',
                          sheet_name="Primary Market Auction", index_col=1, header=5)
@@ -62,8 +64,10 @@ co2_data = co2_data.reindex(pd.date_range(start=datetime.datetime(2019, 1, 1, 0,
                                            freq='1D'))
 co2_data.interpolate(method="linear", inplace=True)
 co2_data.iloc[0:6] = co2_data.iloc[7]
-fig = px.line(co2_data, title='CO2 price')
-fig.show()
+# fig = px.line(co2_data, title='CO2 price')
+# fig.show()
+country_data["co2_price"] = [co2_data.iloc[i] for i in range(0, 365) for j in range(24)]
+
 #%% outlier detection
 X_FR = country_data.loc[:, 'Residual_Demand'].values.reshape(-1, 1)
 # X_FR = np.delete(X_FR, [1, 2, 3, 4, 5, 6], 1)
@@ -77,11 +81,11 @@ print('Number of inliners are ', str(len(inliers[inliers == 1])))
 # keeping only the inliers (all variables)
 #%% defining Xs and Ys
 columns_to_consider = [i for i in country_data.columns if i.endswith('_Residual_Demand')]
-columns_to_consider = columns_to_consider + ["hour", "hour_in_day", 'res']
+columns_to_consider = columns_to_consider + ["hour", "hour_in_day", 'res', "temperature_FR", "gas_price", "co2_price"]
 X = country_data.loc[:, columns_to_consider].values.reshape(-1, len(columns_to_consider))
-Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2) #,  2
-## X = X[inliers == 1, :]
-## Y = Y[inliers == 1, :]
+Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2)  # 2
+# X = X[inliers == 1, :]
+# Y = Y[inliers == 1, :]
 #%% Wind data
 A = 13610
 wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corrected.csv', index_col=0, header=2)
@@ -168,10 +172,10 @@ for run in range(bootstrap_rounds):
 #                  p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df], f)
 
 # Getting back the objects:
-with open('variables.pkl', 'rb') as f:
-    d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,\
-        wind_data_year_tech, res_gen_to_remove, neighbour_data,\
-        p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df = pickle.load(f)
+# with open('variables.pkl', 'rb') as f:
+#     d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,\
+#         wind_data_year_tech, res_gen_to_remove, neighbour_data,\
+#         p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df = pickle.load(f)
 
 #%% post process
 d_p_df_mean = d_p_predic_df.mean(axis=1).mean()
@@ -384,7 +388,7 @@ fig.layout.plot_bgcolor = '#FFFFFF'
 fig.show()
 plotly.io.orca.config.save()
 plotly.io.orca.config.executable = r"C:\Users\darali00\AppData\Local\Programs\orca\orca.exe"
-fig.write_image("figures/mix.svg")
+# fig.write_image("figures/mix.svg")
 #%% OLS comparison
 # making dummy variables for hour in day and year
 encoder = OneHotEncoder(drop='first', sparse=False)
