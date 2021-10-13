@@ -13,6 +13,8 @@ from sklearn import linear_model
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.preprocessing import OneHotEncoder
 import plotly.graph_objects as go
+import plotly.express as px
+import datetime
 
 pio.renderers.default = 'browser'
 #%% parameters
@@ -21,7 +23,6 @@ tech = ["onshore"]  # tech = 'onshore' # offshore  national tech = ["onshore", "
 year = '2019'
 # installed_res_cap = [24600 - 13610, 2400]  # 2023 # installed_res_cap = [34100 - 13610, 4700]   # 2028
 #%% importing data points
-#todo: add temperature
 country_data = pd.read_csv(country + '_data_missing_data_handeled.csv', index_col=0)
 country_data["hour_in_day"] = (country_data["hour"]-1) % 24
 res_columns = ['Wind Onshore', 'Solar', 'Waste', 'Hydro Run-of-river and poundage', 'Wind Offshore', 'Marine', 'Other renewable']
@@ -33,6 +34,36 @@ neighbours = list(set(import_countries + export_countries))
 for neighbour in neighbours:
     neighbour_data = pd.read_csv(neighbour + '_data_missing_data_handeled.csv', index_col=0)
     country_data[neighbour + '_Residual_Demand'] = neighbour_data.loc[:, 'Residual_Demand']
+#%% Import data temerature
+temperature_data = pd.read_csv('French data/ninja_weather_country_FR_merra-2_population_weighted.csv',
+                               index_col=0, header=2, low_memory=False)
+temperature_data = temperature_data.loc["1/1/2019 0:00":"12/31/2019 23:00", "temperature"]
+fig = px.line(temperature_data, title='Temperature Hourly')
+fig.show()
+#%% Import data Gas price
+gas_data = pd.read_excel('French data/Nat Gas Pricing - Data Downloads.xls', header=3)
+gas_data.index = gas_data.TSs
+gas_data = gas_data.loc[datetime.datetime(2019, 12, 31, 0, 0):datetime.datetime(2019, 1, 1, 0, 0), "TRNLTTFDA"]
+gas_data = gas_data.reindex(pd.date_range(start=gas_data.index.min(),
+                                                  end=gas_data.index.max(),
+                                                  freq='1D'))
+gas_data = pd.to_numeric(gas_data)
+gas_data.interpolate(method="linear", inplace=True)
+fig = px.line(gas_data, title='Gas price daily')
+fig.show()
+#%% Import data CO2 prices
+co2_data = pd.read_excel('French data/emission-spot-primary-market-auction-report-2019-data_EEX.xls',
+                         sheet_name="Primary Market Auction", index_col=1, header=5)
+
+co2_data = co2_data.loc[~co2_data.loc[:, "Auction Name"].str.startswith("EUAA"), "Auction Price €/tCO2"]
+# .loc[:, "Auction Price €/tCO2"]
+co2_data = co2_data.reindex(pd.date_range(start=datetime.datetime(2019, 1, 1, 0, 0),
+                                            end=datetime.datetime(2019, 12, 31, 0, 0),
+                                           freq='1D'))
+co2_data.interpolate(method="linear", inplace=True)
+co2_data.iloc[0:6] = co2_data.iloc[7]
+fig = px.line(co2_data, title='CO2 price')
+fig.show()
 #%% outlier detection
 X_FR = country_data.loc[:, 'Residual_Demand'].values.reshape(-1, 1)
 # X_FR = np.delete(X_FR, [1, 2, 3, 4, 5, 6], 1)
@@ -52,7 +83,7 @@ Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2) #,  2
 ## X = X[inliers == 1, :]
 ## Y = Y[inliers == 1, :]
 #%% Wind data
-A = 13610  # todo find max A
+A = 13610
 wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corrected.csv', index_col=0, header=2)
 # ninja_wind_country_FR_current-merra-2_corrected.csv # ninja_wind_country_FR_near-termfuture-merra-2_corrected.csv # ninja_wind_country_FR_long-termfuture-merra-2_corrected.csv
 indices = [i for i in wind_data.index if i.startswith(year)]
@@ -271,8 +302,6 @@ bs_run = 0
 text_size = 26
 w = 5
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.02)
-# fig.update_layout(title_text='Market outcomes under estimated counterfactuals', font=dict(size=text_size))
-
 fig.add_trace(go.Scatter(y=p_red_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIP', line=dict(width=w, color='#0000FF')), row=1, col=1)
 fig.add_trace(go.Scatter(y=p_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIT', line=dict(width=w, color='#FF0000')), row=1, col=1)
 fig.add_trace(go.Scatter(y=0.001*q_red_predict_df.loc[bs_run, 168*35-24:168*36-24-1], mode='lines', name='FIP',showlegend=False, line=dict(width=w, color='#0000FF')), row=2, col=1)
@@ -280,7 +309,12 @@ fig.add_trace(go.Scatter(y=0.001*q_predict_df.loc[bs_run, 168*35-24:168*36-24-1]
 fig.update_xaxes(title_text="Hour in week", row=2, col=1)
 fig.update_yaxes(ticks='outside', showline=True, mirror=True, linecolor='black', title_text="Price (EUR/MWh)", row=1, col=1)
 fig.update_yaxes(ticks='outside', showline=True, mirror=True, linecolor='black', title_text="Consumption (GWh)", row=2, col=1)
-
+fig.update_layout(
+    font=dict(
+        size=18,
+        color="black"
+    )
+)
 
 fig.update_layout(autosize=False, width=1200, height=1*800, margin=dict(l=10, r=10, b=10, t=10, pad=4), font=dict(size=text_size))
 # fig.update_layout(autosize=False, width=2*1200, height=2*800, margin=dict(l=2*100, r=100, b=100, t=100, pad=4), font=dict(size=text_size))
@@ -333,18 +367,24 @@ fig.write_image("figures/fig2_2.svg")
 fig = go.Figure(data=[go.Pie(labels=['Gas', 'Hard coal', 'Oil', 'Hydro', 'Other', 'Nuclear', 'Solar', 'Wind Onshore'],
                              values=[12, 4, 3, 24, 2, 63, 8, 14])])
 fig.update_traces(hoverinfo='label+percent', textinfo='value+label', textfont_size=20,
-                  marker=dict(line=dict(color='#000000', width=2)))
-
-fig.update_layout(title_text="Generation mix in 2019 in GW")
+                  marker=dict(line=dict(color='#000000', width=2)),
+                  textfont=dict(
+                      family="Times New Roman",
+                      size=28,
+                      color=["white","white","white","white","black","white","black","white"]
+                  ))
+fig.update_layout(showlegend=False)
 fig.update_layout(
     autosize=False,
-    width=800,
+    width=1200,
     height=800,
     margin=dict(l=100, r=100, b=100, t=100, pad=4),
-    # paper_bgcolor="LightSteelBlue",
 )
+fig.layout.plot_bgcolor = '#FFFFFF'
 fig.show()
-
+plotly.io.orca.config.save()
+plotly.io.orca.config.executable = r"C:\Users\darali00\AppData\Local\Programs\orca\orca.exe"
+fig.write_image("figures/mix.svg")
 #%% OLS comparison
 # making dummy variables for hour in day and year
 encoder = OneHotEncoder(drop='first', sparse=False)
