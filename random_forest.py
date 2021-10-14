@@ -98,7 +98,8 @@ if np.ndim(wind_data_year_tech) > 1:
 else:
     res_gen_to_remove = A * wind_data_year_tech  # wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
 #%% Calculate min A
-A_minimum = ((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values)/(wind_data.loc[indices, tech].values.flatt)
+A_minimum = ((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values)/\
+            (wind_data.loc[indices, tech].values.flatten())
 fig = px.line(A_minimum)
 fig.show()
 #%% Descriptive statistics
