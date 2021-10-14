@@ -98,10 +98,23 @@ if np.ndim(wind_data_year_tech) > 1:
 else:
     res_gen_to_remove = A * wind_data_year_tech  # wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
 #%% Calculate min A
-A_minimum = ((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values)/\
-            (wind_data.loc[indices, tech].values.flatten())
-fig = px.line(A_minimum)
-fig.show()
+# A_minimum = ((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values)/\
+#             (wind_data.loc[indices, tech].values.flatten())
+# print("Min res gen is ", min(country_data.loc[:,"res"]))
+for Atest in range(0, 14001, 1000):
+    print("at", Atest, "number of hours with new res less than minres is ")
+    res_gen_to_remove2 = (Atest * wind_data_year_tech).flatten()
+    a = sum((country_data.loc[:,"res"] - res_gen_to_remove2)<min(country_data.loc[:,"res"]))
+    print(a)
+
+
+#     min_resaat = min(country_data.loc[:,"res"] - res_gen_to_remove2)
+#     fig = px.line(country_data.loc[:,"res"] - res_gen_to_remove2)
+#     fig.show()
+#     print(min_resaat)
+# fig = px.line(((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values))
+# fig.show()
+# (country_data.loc[:,"res"] - res_gen_to_remove2)<min(country_data.loc[:,"res")
 #%% Descriptive statistics
 df_describe = pd.DataFrame(X, columns=[columns_to_consider])
 df_describe["AF"] = wind_data_year_tech
