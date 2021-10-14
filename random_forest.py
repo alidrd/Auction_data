@@ -81,7 +81,7 @@ print('Number of inliners are ', str(len(inliers[inliers == 1])))
 # keeping only the inliers (all variables)
 #%% defining Xs and Ys
 columns_to_consider = [i for i in country_data.columns if i.endswith('_Residual_Demand')]
-columns_to_consider = columns_to_consider + ["hour", "hour_in_day", 'res', "temperature_FR", "gas_price", "co2_price"]
+columns_to_consider = columns_to_consider + ["temperature_FR", "gas_price", "co2_price", "hour", "hour_in_day", 'res']  # res MUST be last
 X = country_data.loc[:, columns_to_consider].values.reshape(-1, len(columns_to_consider))
 Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2)  # 2
 # X = X[inliers == 1, :]
@@ -97,9 +97,21 @@ if np.ndim(wind_data_year_tech) > 1:
     res_gen_to_remove = np.sum(A * wind_data_year_tech, axis=1)
 else:
     res_gen_to_remove = A * wind_data_year_tech  # wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
-
+#%% Calculate min A
+A_minimum = ((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values)/(wind_data.loc[indices, tech].values.flatt)
+fig = px.line(A_minimum)
+fig.show()
+#%% Descriptive statistics
+df_describe = pd.DataFrame(X, columns=[columns_to_consider])
+df_describe["AF"] = wind_data_year_tech
+df_describe["Price"] = country_data.loc[:,"Price"]
+df_describe["Demand"] = country_data.loc[:, "Demand"]
+df_describe = df_describe[['res', 'temperature_FR', 'DE_Residual_Demand', 'CH_Residual_Demand',
+                                           'BE_Residual_Demand', 'ES_Residual_Demand', 'GB_Residual_Demand',
+                                           'IT_Residual_Demand', "gas_price", "co2_price", 'Price', 'Demand', 'AF']]
+df_describe.describe().T.to_csv("descriptive_stats.csv")
 #%% bootstrap
-bootstrap_rounds = 1000
+bootstrap_rounds = 100
 X_new = np.copy(X)
 X_new[:, -1] = X[:, -1] - res_gen_to_remove
 d_p_predic_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
@@ -165,11 +177,11 @@ for run in range(bootstrap_rounds):
     q_red_predict_df.loc[run, :] = predictions_pre[:, 1]
 
 #%% save and load BS results
-# # Saving the objects:
-# with open('variables2.pkl', 'wb') as f:
-#     pickle.dump([d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,
-#                  wind_data_year_tech, res_gen_to_remove, neighbour_data,
-#                  p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df], f)
+# Saving the objects:
+with open('variables100bs.pkl', 'wb') as f:
+    pickle.dump([d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,
+                 wind_data_year_tech, res_gen_to_remove,
+                 p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df], f)
 
 # Getting back the objects:
 # with open('variables.pkl', 'rb') as f:
