@@ -1,3 +1,4 @@
+#%% parameters
 import pandas as pd
 import numpy as np
 import plotly.io as pio
@@ -18,10 +19,15 @@ import datetime
 
 pio.renderers.default = 'browser'
 #%% parameters
+run_type = "calculating"  # calculating / illustrating
+mode_time_series = "FR_FIP"  # "FR_avg" "FR_nuts"  "FR_FIP"
+A = 13610
+Allow_mult_cap = 3  # in a FIP world, what multiplication of nuts2 capacity can be build (e.g., up to 4 times of realized ones so far)
+print("Allow_mult_cap" + str(Allow_mult_cap))
+
 country = 'FR'
 tech = ["onshore"]  # tech = 'onshore' # offshore  national tech = ["onshore", "offshore"]
 year = '2019'
-# installed_res_cap = [24600 - 13610, 2400]  # 2023 # installed_res_cap = [34100 - 13610, 4700]   # 2028
 #%% importing data points
 country_data = pd.read_csv(country + '_data_missing_data_handeled.csv', index_col=0)
 country_data["hour_in_day"] = (country_data["hour"]-1) % 24
@@ -30,7 +36,6 @@ country_data["res"] = country_data[res_columns].sum(axis=1)
 import_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Imported_')]
 export_countries = [i.split('_')[1] for i in country_data.columns if i.startswith('Exported_')]
 neighbours = list(set(import_countries + export_countries))
-
 for neighbour in neighbours:
     neighbour_data = pd.read_csv(neighbour + '_data_missing_data_handeled.csv', index_col=0)
     country_data[neighbour + '_Residual_Demand'] = neighbour_data.loc[:, 'Residual_Demand']
@@ -38,8 +43,7 @@ for neighbour in neighbours:
 temperature_data = pd.read_csv('French data/ninja_weather_country_FR_merra-2_population_weighted.csv',
                                index_col=0, header=2, low_memory=False)
 temperature_data = temperature_data.loc["1/1/2019 0:00":"12/31/2019 23:00", "temperature"]
-# fig = px.line(temperature_data, title='Temperature Hourly')
-# fig.show()
+# fig = px.line(temperature_data, title='Temperature Hourly') # fig.show()
 country_data["temperature_FR"] = temperature_data.values
 #%% Import data Gas price
 gas_data = pd.read_excel('French data/Nat Gas Pricing - Data Downloads.xls', header=3)
@@ -50,27 +54,23 @@ gas_data = gas_data.reindex(pd.date_range(start=gas_data.index.min(),
                                                   freq='1D'))
 gas_data = pd.to_numeric(gas_data)
 gas_data.interpolate(method="linear", inplace=True)
-# fig = px.line(gas_data, title='Gas price daily')
-# fig.show()
+# fig = px.line(gas_data, title='Gas price daily') # fig.show()
 country_data["gas_price"] = [gas_data.iloc[i] for i in range(0, 365) for j in range(24)]
 #%% Import data CO2 prices
 co2_data = pd.read_excel('French data/emission-spot-primary-market-auction-report-2019-data_EEX.xls',
                          sheet_name="Primary Market Auction", index_col=1, header=5)
 
 co2_data = co2_data.loc[~co2_data.loc[:, "Auction Name"].str.startswith("EUAA"), "Auction Price €/tCO2"]
-# .loc[:, "Auction Price €/tCO2"]
 co2_data = co2_data.reindex(pd.date_range(start=datetime.datetime(2019, 1, 1, 0, 0),
                                             end=datetime.datetime(2019, 12, 31, 0, 0),
                                            freq='1D'))
 co2_data.interpolate(method="linear", inplace=True)
 co2_data.iloc[0:6] = co2_data.iloc[7]
-# fig = px.line(co2_data, title='CO2 price')
-# fig.show()
+# fig = px.line(co2_data, title='CO2 price') # fig.show()
 country_data["co2_price"] = [co2_data.iloc[i] for i in range(0, 365) for j in range(24)]
 
 #%% outlier detection
 X_FR = country_data.loc[:, 'Residual_Demand'].values.reshape(-1, 1)
-# X_FR = np.delete(X_FR, [1, 2, 3, 4, 5, 6], 1)
 Y_Pr = country_data.loc[:, ['Price']].values.reshape(-1, 1)
 X_Y = np.append(X_FR, Y_Pr, 1)
 # Unsupervised Outlier Detection using Local Outlier Factor (LOF)
@@ -87,34 +87,52 @@ Y = country_data.loc[:, ['Price', 'Demand']].values.reshape(-1, 2)  # 2
 # X = X[inliers == 1, :]
 # Y = Y[inliers == 1, :]
 #%% Wind data
-A = 13610
 wind_data = pd.read_csv('French Data/ninja_wind_country_FR_current-merra-2_corrected.csv', index_col=0, header=2)
-# ninja_wind_country_FR_current-merra-2_corrected.csv # ninja_wind_country_FR_near-termfuture-merra-2_corrected.csv # ninja_wind_country_FR_long-termfuture-merra-2_corrected.csv
 indices = [i for i in wind_data.index if i.startswith(year)]
 wind_data_year_tech = wind_data.loc[indices, tech].values
-# wind_data_year_tech[:] = 0.5   # do the simulation for a given average availabitliy factor
 if np.ndim(wind_data_year_tech) > 1:
     res_gen_to_remove = np.sum(A * wind_data_year_tech, axis=1)
 else:
     res_gen_to_remove = A * wind_data_year_tech  # wind_data_year_tech = wind_data_year_tech[int((5/12)*8760):int((9/12)*8760)]   # uncomment to run for a given period only
-#%% Calculate min A
-# A_minimum = ((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values)/\
-#             (wind_data.loc[indices, tech].values.flatten())
-# print("Min res gen is ", min(country_data.loc[:,"res"]))
-for Atest in range(0, 14001, 1000):
-    print("at", Atest, "number of hours with new res less than minres is ")
-    res_gen_to_remove2 = (Atest * wind_data_year_tech).flatten()
-    a = sum((country_data.loc[:,"res"] - res_gen_to_remove2)<min(country_data.loc[:,"res"]))
-    print(a)
 
-
-#     min_resaat = min(country_data.loc[:,"res"] - res_gen_to_remove2)
-#     fig = px.line(country_data.loc[:,"res"] - res_gen_to_remove2)
-#     fig.show()
-#     print(min_resaat)
-# fig = px.line(((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values))
+#%% wind NUTS2- FIP newcomer res_gen_to_remove_FIPN
+wind_cap_original_nuts2 = pd.read_excel("FR_data_plus_nut2_availability_factor.xlsx", index_col=0, sheet_name="res_opsd_ninja_cap")
+wind_cap_original_nuts2.OPSD = wind_cap_original_nuts2.OPSD * (A / wind_cap_original_nuts2.OPSD.sum())
+nuts_regions = wind_cap_original_nuts2.index.tolist()
+avail_factor = pd.read_excel("FR_data_plus_nut2_availability_factor.xlsx", index_col=0, sheet_name="avail_factor")
+res_gen_to_remove_FR_nuts = pd.DataFrame(columns=nuts_regions, index=range(1,8761)) #index=list([1:8561]), 
+for region in nuts_regions:
+    res_gen_to_remove_FR_nuts[region] = wind_cap_original_nuts2.loc[region, "OPSD"]*avail_factor.loc[:,region]
+res_gen_to_remove_FR_nuts_hourly = res_gen_to_remove_FR_nuts.sum(axis=1)
+#%% new capacity
+# find best nuts2 regions for FIP (highest correlation with demand)
+d_af = pd.concat([avail_factor.loc[:, nuts_regions],country_data.loc[:, "Demand"]], ignore_index=False, axis=1)
+cor_af_demand = d_af.corr().loc["Demand",:].sort_values(ascending=False)
+cor_ordered = cor_af_demand.index[1:].tolist()
+wind_cap_FIP_nuts2 = pd.DataFrame(index=nuts_regions, columns=["capacity"])
+wind_cap_original_nuts2_tot = wind_cap_original_nuts2.loc[nuts_regions, "OPSD"].sum()
+counter_regions_processed = 0
+while wind_cap_FIP_nuts2.sum().sum() <= wind_cap_original_nuts2_tot-0.001:
+    region = cor_ordered[counter_regions_processed]
+    wind_cap_FIP_nuts2.loc[region,"capacity"] = Allow_mult_cap * wind_cap_original_nuts2.loc[region, "OPSD"]
+    counter_regions_processed = counter_regions_processed + 1
+region = cor_ordered[counter_regions_processed-1]
+wind_cap_FIP_nuts2.loc[region,"capacity"] = wind_cap_FIP_nuts2.loc[region,"capacity"] - (wind_cap_FIP_nuts2.sum().sum() - A)
+res_gen_to_remove_FR_nuts_FIP = pd.DataFrame(columns=nuts_regions, index=range(1,8761)) #index=list([1:8561]), 
+for region in nuts_regions:
+    res_gen_to_remove_FR_nuts_FIP[region] = wind_cap_FIP_nuts2.loc[region, "capacity"]*avail_factor.loc[:,region]
+res_gen_to_remove_FR_nuts_FIP_hourly = res_gen_to_remove_FR_nuts_FIP.sum(axis=1)
+# #%% compare  res_gen_to_remove 
+# fig = go.Figure()
+# fig.add_trace(go.Scatter(y=res_gen_to_remove_FR_avg, mode='lines', name='Average AF [{:.1f} TWh]'.format(res_gen_to_remove_FR_avg.sum()/1000000)))
+# fig.add_trace(go.Scatter(y=res_gen_to_remove_FR_nuts_hourly, mode='lines', name='NUTS2 [{:.1f} TWh]'.format(res_gen_to_remove_FR_nuts_hourly.sum()/1000000)))
+# fig.add_trace(go.Scatter(y=res_gen_to_remove_FR_nuts_FIP_hourly, mode='lines', name='FIP [{:.1f} TWh]'.format(res_gen_to_remove_FR_nuts_FIP_hourly.sum()/1000000)))
+# fig.update_layout(title_text='RES generation (to be removed from the system)')
 # fig.show()
-# (country_data.loc[:,"res"] - res_gen_to_remove2)<min(country_data.loc[:,"res")
+# #%% Calculate min A
+# A_minimum = ((country_data.loc[:,"res"] - min(country_data.loc[:,"res"])).values)/(wind_data.loc[indices, tech].values)
+# fig = px.line(A_minimum)
+# fig.show()
 #%% Descriptive statistics
 df_describe = pd.DataFrame(X, columns=[columns_to_consider])
 df_describe["AF"] = wind_data_year_tech
@@ -125,83 +143,91 @@ df_describe = df_describe[['res', 'temperature_FR', 'DE_Residual_Demand', 'CH_Re
                                            'IT_Residual_Demand', "gas_price", "co2_price", 'Price', 'Demand', 'AF']]
 df_describe.describe().T.to_csv("descriptive_stats.csv")
 #%% bootstrap
-bootstrap_rounds = 100
-X_new = np.copy(X)
-X_new[:, -1] = X[:, -1] - res_gen_to_remove
-d_p_predic_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                             index=[i for i in range(bootstrap_rounds)])
-d_q_predic_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                             index=[i for i in range(bootstrap_rounds)])
-p_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                            index=[i for i in range(bootstrap_rounds)])
-q_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                            index=[i for i in range(bootstrap_rounds)])
-p_red_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                            index=[i for i in range(bootstrap_rounds)])
-q_red_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
-                            index=[i for i in range(bootstrap_rounds)])
-# rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
-# param_grid = [{'n_estimators': [10, 15, 50, 100, 150], 'min_samples_leaf': [1, 2, 10], 'max_depth': [10, 20, 30]}]
-# # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
-# # param_grid = [{'n_estimators': [100], 'min_samples_leaf': [2], 'max_depth': [20]}]
-# rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
-# rf.fit(X, Y)
-# print("aaaaaaaaaaaaaaaaaa")
-# print("rf.best_estimator_ is ", rf.best_estimator_)
-# print("rf.best_score_ is     ", rf.best_score_)
-# print("rf.cv_results_ is", rf.cv_results_)
-# rf.best_estimator_ is  RandomForestRegressor(bootstrap=True, criterion='mae', max_depth=20,
-#                                              max_features='auto', max_leaf_nodes=None,
-#                                              min_impurity_decrease=0.0, min_impurity_split=None,
-#                                              , min_samples_split=2,
-#                                              min_weight_fraction_leaf=0.0, n_estimators=100, n_jobs=-1,
-#                                              oob_score=False, random_state=42, verbose=0, warm_start=True)
-# rf.cv_results_ is {'mean_fit_time': array([299.29166346]), 'std_fit_time': array([2.00266817]), 'mean_score_time': array([0.57184658]), 'std_score_time': array([0.67182286]), 'param_max_depth': masked_array(data=[20],
-#              mask=[False],
-#        fill_value='?',
-#             dtype=object), 'param_min_samples_leaf': masked_array(data=[2],
-#              mask=[False],
-#        fill_value='?',
-#             dtype=object), 'param_n_estimators': masked_array(data=[100],
-#              mask=[False],
-#        fill_value='?',
-#             dtype=object), 'params': [{'max_depth': 20, 'min_samples_leaf': 2, 'n_estimators': 100}], 'split0_test_score': array([-0.01585644]), 'split1_test_score': array([0.55001909]), 'split2_test_score': array([0.61057011]), 'split3_test_score': array([0.76912039]), 'split4_test_score': array([-0.44844751]), 'mean_test_score': array([0.29308113]), 'std_test_score': array([0.45579313]), 'rank_test_score': array([1])}
+if run_type == "calculating":
+    if   mode_time_series == "FR_avg": 
+        res_gen_to_remove = res_gen_to_remove
+    if   mode_time_series == "FR_nuts": 
+        res_gen_to_remove = res_gen_to_remove_FR_nuts_hourly
+    elif mode_time_series == "FR_FIP": 
+        res_gen_to_remove = res_gen_to_remove_FR_nuts_FIP_hourly
+    bootstrap_rounds = 1000
+    X_new = np.copy(X)
+    X_new[:, -1] = X[:, -1] - res_gen_to_remove
+    d_p_predic_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                                index=[i for i in range(bootstrap_rounds)])
+    d_q_predic_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                                index=[i for i in range(bootstrap_rounds)])
+    p_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                                index=[i for i in range(bootstrap_rounds)])
+    q_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                                index=[i for i in range(bootstrap_rounds)])
+    p_red_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                                index=[i for i in range(bootstrap_rounds)])
+    q_red_predict_df = pd.DataFrame(data=np.empty((bootstrap_rounds, 8760)), columns=[h for h in range(8760)],
+                                index=[i for i in range(bootstrap_rounds)])
+    # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='absolute_error', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
+    # param_grid = [{'n_estimators': [10, 15, 50, 100, 150], 'min_samples_leaf': [1, 2, 10], 'max_depth': [10, 20, 30]}]
+    # # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='absolute_error', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
+    # # param_grid = [{'n_estimators': [100], 'min_samples_leaf': [2], 'max_depth': [20]}]
+    # rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
+    # rf.fit(X, Y)
+    # print("aaaaaaaaaaaaaaaaaa")
+    # print("rf.best_estimator_ is ", rf.best_estimator_)
+    # print("rf.best_score_ is     ", rf.best_score_)
+    # print("rf.cv_results_ is", rf.cv_results_)
+    # rf.best_estimator_ is  RandomForestRegressor(bootstrap=True, criterion='absolute_error', max_depth=20,
+    #                                              max_features='auto', max_leaf_nodes=None,
+    #                                              min_impurity_decrease=0.0, min_impurity_split=None,
+    #                                              , min_samples_split=2,
+    #                                              min_weight_fraction_leaf=0.0, n_estimators=100, n_jobs=-1,
+    #                                              oob_score=False, random_state=42, verbose=0, warm_start=True)
+    # rf.cv_results_ is {'mean_fit_time': array([299.29166346]), 'std_fit_time': array([2.00266817]), 'mean_score_time': array([0.57184658]), 'std_score_time': array([0.67182286]), 'param_max_depth': masked_array(data=[20],
+    #              mask=[False],
+    #        fill_value='?',
+    #             dtype=object), 'param_min_samples_leaf': masked_array(data=[2],
+    #              mask=[False],
+    #        fill_value='?',
+    #             dtype=object), 'param_n_estimators': masked_array(data=[100],
+    #              mask=[False],
+    #        fill_value='?',
+    #             dtype=object), 'params': [{'max_depth': 20, 'min_samples_leaf': 2, 'n_estimators': 100}], 'split0_test_score': array([-0.01585644]), 'split1_test_score': array([0.55001909]), 'split2_test_score': array([0.61057011]), 'split3_test_score': array([0.76912039]), 'split4_test_score': array([-0.44844751]), 'mean_test_score': array([0.29308113]), 'std_test_score': array([0.45579313]), 'rank_test_score': array([1])}
 
 #%% bootstrap
-for run in range(bootstrap_rounds):
-    print("bootstrap run number:", run)
-    X_bt, Y_bt, res_gen_to_remove_bt = resample(X, Y, res_gen_to_remove, n_samples=len(X), replace=True)
-    # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
-    # param_grid = [{'n_estimators': [10, 100], 'min_samples_leaf': [2, 10], 'max_depth': [20, 30, 50]}]
-    # rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
-    #todo: CVgridsearch
-    rf = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1, warm_start=True,
-                               max_depth=20, min_samples_leaf=2, n_estimators=100) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
-    rf.fit(X_bt, Y_bt)
-    # rf = RandomForestRegressor(n_estimators=20, bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=10)
-    # rf.fit(X_bt, Y_bt)
-    #todo: predic based on X_bt and X_bt_new, X_new_bt = np.copy(X_bt) ---- X_new_bt[:, -1] = X_bt[:, -1] - res_gen_to_remove_bt
-    predictions = rf.predict(X)
-    predictions_pre = rf.predict(X_new)
-    d_p_predic_df.loc[run, :] = predictions_pre[:, 0] - predictions[:, 0]
-    d_q_predic_df.loc[run, :] = predictions_pre[:, 1] - predictions[:, 1]
-    p_predict_df.loc[run, :] = predictions[:, 0]
-    q_predict_df.loc[run, :] = predictions[:, 1]
-    p_red_predict_df.loc[run, :] = predictions_pre[:, 0]
-    q_red_predict_df.loc[run, :] = predictions_pre[:, 1]
+if run_type == "calculating":
+    for run in range(bootstrap_rounds):
+        print("bootstrap run number:", run)
+        X_bt, Y_bt, res_gen_to_remove_bt = resample(X, Y, res_gen_to_remove, n_samples=len(X), replace=True)
+        # rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='absolute_error', n_jobs=-1, warm_start=True) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
+        # param_grid = [{'n_estimators': [10, 100], 'min_samples_leaf': [2, 10], 'max_depth': [20, 30, 50]}]
+        # rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
+        #todo: CVgridsearch
+        rf = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='absolute_error', n_jobs=-1, warm_start=True,
+                                max_depth=20, min_samples_leaf=2, n_estimators=100) # n_estimators=15+30+50+100  min_samples_leaf=10-5-2-2  max_depth=50+30
+        rf.fit(X_bt, Y_bt)
+        # rf = RandomForestRegressor(n_estimators=20, bootstrap=True, random_state=42, oob_score=False, criterion='absolute_error', n_jobs=10)
+        # rf.fit(X_bt, Y_bt)
+        #todo: predic based on X_bt and X_bt_new, X_new_bt = np.copy(X_bt) ---- X_new_bt[:, -1] = X_bt[:, -1] - res_gen_to_remove_bt
+        predictions = rf.predict(X)
+        predictions_pre = rf.predict(X_new)
+        d_p_predic_df.loc[run, :] = predictions_pre[:, 0] - predictions[:, 0]
+        d_q_predic_df.loc[run, :] = predictions_pre[:, 1] - predictions[:, 1]
+        p_predict_df.loc[run, :] = predictions[:, 0]
+        q_predict_df.loc[run, :] = predictions[:, 1]
+        p_red_predict_df.loc[run, :] = predictions_pre[:, 0]
+        q_red_predict_df.loc[run, :] = predictions_pre[:, 1]
 
 #%% save and load BS results
-# Saving the objects:
-with open('variables100bs.pkl', 'wb') as f:
-    pickle.dump([d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,
-                 wind_data_year_tech, res_gen_to_remove,
-                 p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df], f)
-
-# Getting back the objects:
-# with open('variables.pkl', 'rb') as f:
-#     d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,\
-#         wind_data_year_tech, res_gen_to_remove, neighbour_data,\
-#         p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df = pickle.load(f)
+suffix= "_Allow_mult_cap"+ str(Allow_mult_cap) if mode_time_series == "FR_FIP" else "" 
+if run_type == "calculating": # Saving the objects:    
+    with open('variables_'+ mode_time_series + suffix +'.pkl', 'wb') as f:
+        pickle.dump([d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,
+                    wind_data_year_tech, res_gen_to_remove,
+                    p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df, wind_cap_FIP_nuts2], f)
+elif run_type == "illustrating":  # Getting back the objects:  
+    with open('variables_'+ mode_time_series + suffix +'.pkl', 'rb') as f:
+        d_p_predic_df, d_q_predic_df, res_gen_to_remove, country_data, X, Y, X_new, rf,\
+            wind_data_year_tech, res_gen_to_remove,\
+            p_predict_df, q_predict_df, p_red_predict_df, q_red_predict_df, wind_cap_FIP_nuts2 = pickle.load(f)
 
 #%% post process
 d_p_df_mean = d_p_predic_df.mean(axis=1).mean()
@@ -264,7 +290,7 @@ fig.update_layout(title_text='Range of difference estimates in bootstrap method 
 fig.show()
 #%% Single run (bs) analysis of last bs
 bs_run = 0
-# rf = RandomForestRegressor(n_estimators=50, bootstrap=True, random_state=42, oob_score=True, criterion='mae', n_jobs=10)
+# rf = RandomForestRegressor(n_estimators=50, bootstrap=True, random_state=42, oob_score=True, criterion='absolute_error', n_jobs=10)
 # print('here2')
 # rf.fit(X, Y)
 # predictions = rf.predict(X)
@@ -373,8 +399,8 @@ fig.update_layout(legend=dict(
 ))
 fig.show()
 # plotly.io.orca.config.executable = r"C:\Users\darali00\AppData\Local\Programs\orca\orca.exe"
-fig.write_image("figures/fig2_2.jpg")
-fig.write_image("figures/fig2_2.svg")
+fig.write_image("figures/fig2_"+ mode_time_series+"_Allow_mult_cap"+ str(Allow_mult_cap) +".jpg")
+fig.write_image("figures/fig2_2"+ mode_time_series+"_Allow_mult_cap"+ str(Allow_mult_cap) +".svg")
 #%%
 # fig = make_subplots(specs=[[{"secondary_y": True}]])
 # fig.add_trace(go.Scatter(y=p_red_predict_df.loc[bs_run, 168*35-24:168*36-24+1], mode='lines', name='FIP', line=dict(width=8)), secondary_y=True)
@@ -444,11 +470,11 @@ print('MAE for price: %.3f' % mean_absolute_error(Y[:, 0], Y_OLS[:, 0]))
 print('MAE for demand: %.3f' % mean_absolute_error(Y[:, 1], Y_OLS[:, 1]))
 
 #%% RF with CV
-rf2 = RandomForestRegressor(n_estimators=100, max_depth=20, min_samples_leaf=2, bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-1)
+rf2 = RandomForestRegressor(n_estimators=100, max_depth=20, min_samples_leaf=2, bootstrap=True, random_state=42, oob_score=False, criterion='absolute_error', n_jobs=-1)
 rf2.fit(X, Y)
 Y_RF = rf2.predict(X)
 
-rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='mae', n_jobs=-2, warm_start=True)
+rfm = RandomForestRegressor(bootstrap=True, random_state=42, oob_score=False, criterion='absolute_error', n_jobs=-2, warm_start=True)
 param_grid = [{'n_estimators': [100], 'min_samples_leaf': [2], 'max_depth': [20]}]
 rf = GridSearchCV(rfm, param_grid, scoring='r2', cv=5, refit=True, n_jobs=-1)  # scoring='neg_mean_squared_error'
 rf.fit(X, Y)
